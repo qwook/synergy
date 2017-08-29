@@ -118,7 +118,7 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 		
 #if defined(MAC_OS_X_VERSION_10_9)
 			// we can't pass options to show the dialog, this must be done by the gui.
-			if (!AXIsProcessTrusted()) {
+            if (!AXIsProcessTrusted() && !AXAPIEnabled()) {
 				throw XArch("assistive devices does not trust this process, allow it in system settings.");
 			}
 #else
