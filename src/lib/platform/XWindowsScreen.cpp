@@ -102,7 +102,7 @@ XWindowsScreen::XWindowsScreen(
 	m_display(NULL),
 	m_root(None),
 	m_window(None),
-	m_isOnScreen(m_isPrimary),
+	m_isOnScreen(true),
 	m_x(0), m_y(0),
 	m_w(0), m_h(0),
 	m_xCenter(0), m_yCenter(0),
@@ -159,7 +159,6 @@ XWindowsScreen::XWindowsScreen(
 	}
 
 	// primary/secondary screen only initialization
-	if (m_isPrimary) {
 #ifdef HAVE_XI2
 		m_xi2detected = detectXI2();
 		if (m_xi2detected) {
@@ -173,8 +172,7 @@ XWindowsScreen::XWindowsScreen(
 
 		// prepare to use input methods
 		openIM();
-	}
-	else {
+	if (!m_isPrimary) {
 		// become impervious to server grabs
 		XTestGrabControl(m_display, True);
 	}
@@ -216,8 +214,7 @@ XWindowsScreen::~XWindowsScreen()
 		if (m_im != NULL) {
 			XCloseIM(m_im);
 		}
-		XDestroyWindow(m_display, m_window);
-		XCloseDisplay(m_display);
+		XDestroyWindow(m_display, m_window);		XCloseDisplay(m_display);
 	}
 	XSetIOErrorHandler(NULL);
 
@@ -242,7 +239,7 @@ XWindowsScreen::enable()
 		XMapRaised(m_display, m_window);
 
 		// warp the mouse to the cursor center
-		fakeMouseMove(m_xCenter, m_yCenter);
+		warpCursor(m_xCenter, m_yCenter);
 	}
 }
 
@@ -344,7 +341,7 @@ XWindowsScreen::leave()
 	XMapRaised(m_display, m_window);
 
 	// grab the mouse and keyboard, if primary and possible
-	if (m_isPrimary && !grabMouseAndKeyboard()) {
+	if (!grabMouseAndKeyboard()) {
 		XUnmapWindow(m_display, m_window);
 		return false;
 	}
@@ -353,19 +350,14 @@ XWindowsScreen::leave()
 	XGetInputFocus(m_display, &m_lastFocus, &m_lastFocusRevert);
 
 	// take focus
-	if (m_isPrimary || !m_preserveFocus) {
+	if (!m_preserveFocus) {
 		XSetInputFocus(m_display, m_window, RevertToPointerRoot, CurrentTime);
 	}
 
 	// now warp the mouse.  we warp after showing the window so we're
 	// guaranteed to get the mouse leave event and to prevent the
 	// keyboard focus from changing under point-to-focus policies.
-	if (m_isPrimary) {
-		warpCursor(m_xCenter, m_yCenter);
-	}
-	else {
-		fakeMouseMove(m_xCenter, m_yCenter);
-	}
+	warpCursor(m_xCenter, m_yCenter);
 
 	// set input context focus to our window
 	if (m_ic != NULL) {
@@ -836,7 +828,7 @@ XWindowsScreen::fakeMouseMove(SInt32 x, SInt32 y)
 {
 	if (m_xinerama && m_xtestIsXineramaUnaware) {
 		XWarpPointer(m_display, None, m_root, 0, 0, 0, 0, x, y);
-	}
+	} 
 	else {
 		XTestFakeMotionEvent(m_display, DefaultScreen(m_display),
 							x, y, CurrentTime);
@@ -1044,7 +1036,10 @@ XWindowsScreen::openWindow() const
 		// moved.  we'll reposition the window as necessary so its
 		// position here doesn't matter.  it only needs to be 1x1 because
 		// it only needs to contain the cursor's hotspot.
-		attr.event_mask = LeaveWindowMask;
+		attr.event_mask = PointerMotionMask |
+							 ButtonPressMask | ButtonReleaseMask |
+							 KeyPressMask | KeyReleaseMask |
+							 KeymapStateMask;
 		x = 0;
 		y = 0;
 		w = 1;
@@ -1253,27 +1248,31 @@ XWindowsScreen::handleSystemEvent(const Event& event, void*)
 				cookie->type == GenericEvent &&
 				cookie->extension == xi_opcode) {
 			if (cookie->evtype == XI_RawMotion) {
-				// Get current pointer's position
-				Window root, child;
-				XMotionEvent xmotion;
-				xmotion.type = MotionNotify;
-				xmotion.send_event = False; // Raw motion
-				xmotion.display = m_display;
-				xmotion.window = m_window;
-				/* xmotion's time, state and is_hint are not used */
-				unsigned int msk;
-					xmotion.same_screen = XQueryPointer(
-						m_display, m_root, &xmotion.root, &xmotion.subwindow,
-						&xmotion.x_root,
-						&xmotion.y_root,
-						&xmotion.x,
-						&xmotion.y,
-						&msk);
+				if (m_isPrimary) {
+					// Get current pointer's position
+					Window root, child;
+					XMotionEvent xmotion;
+					xmotion.type = MotionNotify;
+					xmotion.send_event = False; // Raw motion
+					xmotion.display = m_display;
+					xmotion.window = m_window;
+					/* xmotion's time, state and is_hint are not used */
+					unsigned int msk;
+						xmotion.same_screen = XQueryPointer(
+							m_display, m_root, &xmotion.root, &xmotion.subwindow,
+							&xmotion.x_root,
+							&xmotion.y_root,
+							&xmotion.x,
+							&xmotion.y,
+							&msk);
 					onMouseMove(xmotion);
-					XFreeEventData(m_display, cookie);
-					return;
+				} else if (!m_isOnScreen) {
+					LOG ((CLOG_INFO "local input detected"));
+				}
+				XFreeEventData(m_display, cookie);
+				return;
 			}
-        		XFreeEventData(m_display, cookie);
+			XFreeEventData(m_display, cookie);
 		}
 	}
 #endif
@@ -1359,30 +1358,40 @@ XWindowsScreen::handleSystemEvent(const Event& event, void*)
 	case KeyPress:
 		if (m_isPrimary) {
 			onKeyPress(xevent->xkey);
+		} else {
+			LOG ((CLOG_INFO "local input detected"));
 		}
 		return;
 
 	case KeyRelease:
 		if (m_isPrimary) {
 			onKeyRelease(xevent->xkey, isRepeat);
+		} else {
+			LOG ((CLOG_INFO "local input detected"));
 		}
 		return;
 
 	case ButtonPress:
 		if (m_isPrimary) {
 			onMousePress(xevent->xbutton);
+		} else {
+			LOG ((CLOG_INFO "local input detected"));
 		}
 		return;
 
 	case ButtonRelease:
 		if (m_isPrimary) {
 			onMouseRelease(xevent->xbutton);
+		} else {
+			LOG ((CLOG_INFO "local input detected"));
 		}
 		return;
 
 	case MotionNotify:
 		if (m_isPrimary) {
 			onMouseMove(xevent->xmotion);
+		} else if (!m_isOnScreen && (xevent->xmotion.send_event == False)) {
+			LOG ((CLOG_INFO "local input detected"));
 		}
 		return;
 

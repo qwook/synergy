@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/hen/third_party/synergy/src/lib/common/Version.cpp
+common/Version.h
+/Users/hen/third_party/synergy/src/lib/common/common/Version.h
+
+src/./lib/common/Version.h
+common/common.h
+src/./lib/common/common/common.h
+
+src/./lib/common/common.h
+config.h
+src/./lib/common/config.h
+wchar.h
+-
+stddef.h
+-
+assert.h
+-
+stdlib.h
+-
+string.h
+-
+
+src/./lib/config.h
+
